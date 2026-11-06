@@ -4239,7 +4239,18 @@ function Poll-Update {
     } catch {
         $m = "$($_.Exception.Message)"
         if ($_.Exception.InnerException) { $m = "$($_.Exception.InnerException.Message)" }
-        if ($m -match '404') { $m = 'No published release was found. On GitHub, publish a release (not a draft) and attach the update zip. Private repositories are not supported.' }
+        if ($m -match '404') {
+            $m = 'No published release was found. On GitHub, publish a release (not a draft) and attach the update zip. Private repositories are not supported.'
+            try {
+                $one = ("$(Normalize-Source $c.updSrc.Text)" -split ';')[0]
+                if ($one -match '^[\w.-]+/[\w.-]+$') {
+                    $rp = $null
+                    try { $rp = Invoke-RestMethod "https://api.github.com/repos/$one" -Headers @{ 'User-Agent' = 'bluFPS' } -TimeoutSec 8 } catch {}
+                    if ($rp) { $m = "The repository $one is public but has no published release yet. Publish one: Releasing updates below > Publish an update file... (or create a release on GitHub and attach the update zip)." }
+                    else { $m = "GitHub cannot see $one without signing in, so it is private or the name is wrong. bluFPS checks for updates without a login, so the repository must be PUBLIC (GitHub > repository Settings > Change visibility)." }
+                }
+            } catch {}
+        }
         elseif ($m -match '403') { $m = 'GitHub refused the request (rate limit). Try again in a few minutes.' }
         elseif ($m -match 'remote name|could not be resolved|unable to connect|timed out|timeout') { $m = 'Could not reach the update source. Check your internet connection.' }
         if ($m -match 'update source must be' -and $c.updSrc.Text -match '^[A-Za-z]:\\|^\\\\|\.zip\s*$') { Set-UpdText 'That is a file on your PC. Online updates only work with a GitHub repo (owner/name). To install a new zip, just run its bluFPS-Setup.exe - it updates in place. Clear this box or enter your repo.' 'warn' }
@@ -4361,7 +4372,7 @@ $timer.Add_Tick({
     try { Update-Session } catch {}
 })
 
-$script:AppVersion = '1.1.9.4'
+$script:AppVersion = '1.1.9.5'
 $c.verText.Text = "$(Format-Ver $script:AppVersion)"
 $win.Title = "bluFPS $(Format-Ver $script:AppVersion)"
 $c.updCur.Text = "$(Format-Ver $script:AppVersion)"
