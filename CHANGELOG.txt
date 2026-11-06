@@ -1,0 +1,174 @@
+bluFPS changelog
+================
+
+v1.1.9  (current)
+- NEW Auto profile (default for new installs): picks the tweaks for YOUR PC and each game instead of one fixed list.
+  It uses your hardware (remembered after a quick background check) and the result of your last Analyze for that game.
+  It skips tweaks that cannot help and says so in the log and on the game page, for example: GPU tweaks when a game is
+  CPU-limited, the GPU preference with only one graphics adapter, memory tweaks with 24 GB+ of RAM.
+- Analyze now remembers each game's bottleneck (GPU / CPU / memory / storage) for the Auto profile.
+- Changing any boost switch by hand switches from Auto/profile to Custom, so your switches are always respected.
+- Per-game profile can be Auto as well.
+- Build numbers: a rebuilt 1.1.9 counts as newer than an older 1.1.9 (internally 1.1.9.1, 1.1.9.2 ...), so the update
+  check recognizes it. Screens still say v1.1.9 and add "(build N)" only when N is above 0.
+- NEW in-app publishing (Updates page): Set up publishing once, then "Publish an update file..." uploads a ready-made
+  bluFPS-vX-update.zip - no extracting, no BUILD.bat, no PUBLISH.bat. "Publish this installed version" uploads the
+  copy you are running. Installed copies then offer the update by themselves.
+- Two publishing destinations: TESTING (your own repo while you build) and CUSTOMERS (the separate GitHub your customers
+  download updates from). Switch with "Publish to:" in the app or by choosing 1/2 in PUBLISH.bat. Publishing to Customers
+  asks for confirmation. The address built into new installers always comes from Customers once it exists, so a test
+  publish can never change what customers' copies check. The publishing tools are hidden from customers' copies.
+- Build 2: the program file changed again, so it counts as newer than build 1.
+- Publishing now also updates the repository's MAIN BRANCH (not only the Release): program files, CHANGELOG, a README
+  showing the latest version, and update.json - in one commit. Release notes come from the changelog. On by default per
+  destination; switch it off in Set up publishing (or answer n in PUBLISH.bat). If the main-branch step fails, the Release
+  is still published and the reason is shown.
+- Build 3: counts as newer than build 2.
+- Build 4: FIXES build 3, which would not start ("Variable reference is not valid. ':' was not followed by a valid
+  variable name character") because of a mistake in the publishing status text. Fixed.
+- Pre-flight checks so a broken script can never ship again: BUILD.bat parses every script with the real PowerShell
+  parser and stops if one is broken; the in-app publisher refuses to upload an update that does not parse; the in-app
+  updater refuses to install one and leaves your working version untouched.
+- NEW Self-check (Performance page): tests bluFPS itself on your PC in about 10 seconds - administrator rights, helpers,
+  data folder, game library, duplicate logic, hardware, performance counters, frame statistics (known test data), the
+  PresentMon file reader (including a half-written line), profile apply/restore, anti-cheat detection, power plan tools.
+  Copy the result and send it if anything fails.
+- NEW one-click "Download PresentMon" (official Intel GitHub release, asks first) and automatic detection of its
+  command style, so real FPS no longer needs manual setup.
+- NEW heat/power-limit detection: CPU speed vs maximum while busy, NVIDIA GPU temperature and thermal-slowdown reports.
+  CPU temperature is not shown because Windows has no reliable reading - bluFPS does not guess.
+- Faster game scanning: .NET folder enumeration, skips asset folders, stops at the first real-size executable.
+- Measurements fall back to WMI so they work on non-English Windows.
+- Mac app: Epic Games detection, scan any folder you choose, duplicate merging, remove / show removed games, "Ready" or
+  "Not found" status, real scan result message, Show in Finder. Quitting apps is now off by default on Mac too.
+
+v1.1.8
+- NEW Performance page: reads your hardware (CPU, GPU, RAM channels, Windows, drives), then measures what actually limits
+  a running game - GPU, CPU (including the busiest game thread), memory or storage - and recommends a profile for that.
+- NEW real FPS monitor (average, 1% low, worst frame, frame time, variation, spikes) plus a BEFORE/AFTER TEST that measures
+  the same game without and with boost and reports the real difference - or "no meaningful change". Needs PresentMon
+  (free, Intel); without it bluFPS shows no FPS rather than made-up numbers.
+- Profiles are now Balanced / Performance / Extreme and genuinely differ (see tooltips). Extreme never touches security.
+- Per-game profile (Default / Balanced / Performance / Extreme / Off), remembered for each game.
+- Safer: the Defender exclusion is no longer part of any profile; RAM is only trimmed when 80%+ is used; SysMain is not
+  paused on hard drives.
+- Fixes: GPU adapter detection, before/after variable bug, Boost errors shown instead of silent.
+
+v1.1.7
+- Safer Boost: closing background apps is OFF by default (turn it on in Settings), apps are only asked politely and never force-killed, browsers are never touched, a failed boost resets itself and shows the error.
+- Games page: every button now shows its real error instead of silently doing nothing; the scan reports what each launcher found, and a stuck scan can no longer leave the buttons disabled.
+- BUILD.bat now publishes the new version online by itself once PUBLISH.bat has been run one time - no separate publish step per release.
+- BOOST NOW no longer wipes your Temp folders (that could crash a running browser) - use Tools > Cleaner. Browsers are never force-closed. Crashes now go to crash.log. Update address is built in and hidden.
+- Setup now closes a running bluFPS before updating (or tells you how), retries locked files and shows the full error.
+- GAME LIBRARY REBUILT (Windows): a background scanner with real progress (percent, current step, games found so far).
+  Finds games from Steam (all library folders on every drive), Epic, GOG, the Xbox app / Microsoft Store (incl. XboxGames
+  folders), EA, Ubisoft Connect, Riot, Rockstar, installed programs, and the usual game folders on every drive.
+- Add games panel: Scan now, tick games and Add selected / Add all new, Browse for .exe, Scan a folder (custom folders on
+  any drive are remembered). New games are added automatically (switch off in Settings).
+- One game = one entry: duplicates are merged even when Steam/Epic/folders all point at the same game.
+- Every game shows its picture or icon, install folder, and "Ready for Game Boost" / "Needs its .exe" / "Not found".
+  New buttons: Locate game .exe, Open game folder, Remove from list (removed games stay removed).
+- Clear messages: how many games were found, when nothing was found, and which folders could not be read.
+- Anti-cheat games (Valorant, Fortnite, Apex, Call of Duty, EasyAntiCheat/BattlEye/Vanguard folders, ...): bluFPS never
+  touches the game process itself, only the rest of the PC.
+- Update source box now accepts a pasted GitHub link and shows a friendly hint instead of a red error.
+- Mac app: unchanged in this version.
+
+v1.1.3
+- MORE POWERFUL BOOST (Windows): efficiency mode (EcoQoS) + very low disk and memory priority for other apps;
+  ProBalance (apps that start hogging the CPU mid-game are throttled instantly); standby-memory purge at boost and
+  automatically when free memory runs low; power-throttling OFF + normal memory priority for the game; stronger
+  power plan (energy preference = performance, boost policy 100); anti-cheat and launcher processes are never touched.
+- Updates are ONLINE ONLY now: the Downloads-folder, local-folder and zip-file sources (and their buttons) are removed. bluFPS
+  reads your GitHub repo (or an https update.json), announces the update, and downloads it from there after you press Yes.
+- Update notices no longer need anything downloaded: bluFPS reads the release info online, announces the update, and only
+  downloads after you press Yes. The old "watch the Downloads folder" default is gone; a "Set up online updates" bar
+  (Windows and Mac) walks you to the one-time GitHub repo setting.
+- REAL FPS LEVERS: GPU scheduling priority (game HIGH, other apps BELOW NORMAL, restored after); the Windows game scheduler
+  (MMCSS Games task: GPU priority 8, priority 6, High scheduling, no network throttling) applied only while you play; optional
+  Defender exclusion for the game folder during play (Maximum level); Wallpaper Engine closed by default (they cost real FPS).
+- FASTER BOOST: the tuned power plan is built once and reused (a boost only switches to it); DNS flush, service pauses and the plan
+  switch go out in one hidden helper nothing waits for; apps get 1.2s to close instead of 2.5s; the game now starts right after the
+  quick steps while the rest of the boost finishes during loading. Mac: one shell call for all throttling, game launches sooner.
+- Boost levels: Light, Balanced, Maximum (Settings).
+- MAC app gets the same power: efficiency mode via taskpolicy, ProBalance, Photos/media analysis paused, Maximum boost
+  (game priority, one password prompt), optional Metal FPS overlay, boost levels.
+- Chromebook edition removed.
+
+v1.1.0
+- New Tools tab with five tools (everything that was already in bluFPS is kept as it was):
+  * Junk file cleaner: temp files, Chrome / Edge / Brave / Firefox caches, crash dumps and error
+    reports, old system logs, optional Recycle Bin. Shows sizes first, runs in the background, skips
+    files in use and never touches documents, passwords, cookies or history. Link to Storage Sense.
+  * Startup manager: turn startup apps on/off (registry Run keys and Startup folders), using the same
+    switch as Task Manager, so it is fully reversible.
+  * Uninstaller: runs the program's own uninstaller, then scans for leftover folders (including hidden
+    ones), shortcuts, startup entries and registry keys and lets you review them before removal.
+  * System monitor: live CPU, memory and disk activity plus the top apps by CPU, memory or disk I/O,
+    and free space on your drives.
+  * Backup and restore: automatic registry backups before bluFPS changes startup items, tweaks or
+    removes leftovers; manual registry backup; Windows restore point; restore or delete backups.
+- Faster file cleaning and process I/O through the native helper
+- New native Mac app released together with Windows: same version number, one PUBLISH.bat ships both
+
+v1.0.9
+- Game pictures: every game in the Games tab shows its main picture, on the list and as a large banner.
+  Pictures come from Steam, the Epic launcher's own catalog (new key art such as a new Fortnite season is
+  picked up when the launcher updates it), GOG, or are found by game name. They are cached, re-checked in
+  the background every few hours and refreshed when a new one appears. "Change picture..." / "Reset picture".
+- Adding a game by .exe now asks for its name so the right picture can be found
+- Online updates with nothing to download: PUBLISH.bat uploads a release to GitHub (creates the repo for you),
+  and installed copies update themselves. Several update sources can be listed, separated by ;
+
+v1.0.8
+- Stronger boost: a temporary tuned power plan (no core parking, max CPU boost, PCIe/USB power saving
+  off), pauses SysMain / Windows Search / telemetry, lowers the priority of other open apps (voice chat
+  and streaming apps are left alone), favors the game in the Windows scheduler, silences notification
+  pop-ups. All of it is put back when the game closes.
+- Faster: background apps close in parallel, power-plan steps run in one helper, process scanning uses a
+  native helper instead of WMI, RAM/CPU stats no longer call WMI, startup hardware info read from the
+  registry, splash shortened to about 2.3s. The boost now reports how long it took and what it did.
+- Crash-safe: what a boost changes is saved, so if bluFPS is closed or the PC loses power mid-boost, it
+  repairs everything on the next start (and removes leftover temporary power plans)
+- New optional Boost-tab tweaks: window transparency off, Store apps background off
+- Settings: four new switches for the new boost steps
+
+v1.0.7
+- Fix: in-app updating did nothing unless you had a GitHub repo or web link set up. Now it works
+  with no server: it checks your Downloads folder by default (drop a newer bluFPS zip there and it
+  offers it), or any folder/zip on your PC, GitHub, or a web link.
+- New "Update from a zip file..." and "Use my Downloads folder" buttons on the Updates tab
+- Clearer messages (no release found, offline, rate limit, "already up to date" with the time)
+- Safety: never installs a package that is not newer than the installed version
+
+v1.0.6
+- Animated startup screen: the bluFPS logo pops in with a spinning ring and glow, the name slides in,
+  a loading bar sweeps while the app gets ready, then the splash fades into the app
+  (skipped when bluFPS starts minimized with Windows)
+- Fix: the live game-server ping label was missing from the Games page, which stopped the
+  Dashboard ping graph from updating. It is back (shown on the Games page too).
+
+v1.0.5
+- Games library (like Razer Cortex): finds your Steam, Epic and GOG games, plus any game you add
+- BOOST AND PLAY: closes background apps, frees RAM, High Performance power plan, Game Mode on,
+  DNS flush, high priority (and high-performance GPU), launches the game, then restores everything
+  and reopens the closed apps when the game closes. Also "Boost (game already running)"
+- Auto-boost: optionally boost automatically when a library game starts
+- New Settings page: choose what a boost does, pick or add the apps to close, restore options,
+  start with Windows (minimized), reset settings, open data folder
+
+v1.0.4
+- bluFPS is its own program: bluFPS.exe runs the app itself, with its own logo on the taskbar
+  (pinning keeps the bluFPS icon). Only one copy runs at a time.
+- One-file installer (bluFPS-Setup.exe) with shortcuts, Settings > Apps entry and uninstaller;
+  it detects an existing install and updates it
+- Auto-update: checks a GitHub repo or update.json link on startup and every 6 hours and asks
+  "Do you want to update bluFPS now?" inside the app (Yes, update / Not now / Skip this version)
+- Dashboard with live CPU, memory and game-server ping graph; one-click Boost with full revert
+- Game tab: optimize one specific game (priority, GPU, fullscreen optimizations) with per-game undo
+- Network tab: game region test, DNS providers ping test, DNS switcher, flush DNS
+- Apps tab: close heavy background apps or give a game High priority
+- New dark blue design and the bluFPS logo
+
+Earlier development builds (numbered 1.0.0 to 1.4.0 while this was being built) were renumbered
+into this release.
