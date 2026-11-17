@@ -458,7 +458,7 @@ $xaml = @'
         <!-- Boost -->
         <Grid x:Name="pgBoost" Visibility="Collapsed">
           <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-          <StackPanel><TextBlock Text="Boost" Style="{StaticResource Title}"/><TextBlock Text="Switch on the tweaks you want, then apply. Everything can be reverted." Style="{StaticResource Sub}"/></StackPanel>
+          <StackPanel><TextBlock Text="Boost" Style="{StaticResource Title}"/><TextBlock Text="Tick the tweaks you want and press Apply selected. Your ticks are remembered, and a green APPLIED tag shows what is active. Everything can be reverted." Style="{StaticResource Sub}"/></StackPanel>
           <Border Grid.Row="1" Style="{StaticResource Card}" Margin="0,0,14,14"><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel x:Name="tweakPanel"/></ScrollViewer></Border>
           <StackPanel Grid.Row="2" Orientation="Horizontal">
             <Button x:Name="btnApply" Style="{StaticResource Go}" Content="Apply selected"/>
@@ -883,10 +883,15 @@ function Update-Boost {
 }
 
 function Apply-Tweaks($list) {
+    $list = @($list)
+    if (-not $list.Count) { Log 'Nothing is ticked. Tick the tweaks you want on the Boost page, then press Apply selected.'; return }
     try { Ensure-RegBackup 'tweaks' } catch {}
+    $applied = @($script:S.TweakApplied)
     foreach ($t in $list) {
-        try { & $t.Run; Log "OK    $($t.Name)" } catch { Log "FAIL  $($t.Name): $($_.Exception.Message)" }; Pump
+        try { & $t.Run; Log "OK    $($t.Name)"; if ($applied -notcontains $t.Name) { $applied += $t.Name } } catch { Log "FAIL  $($t.Name): $($_.Exception.Message)" }; Pump
     }
+    $script:S.TweakApplied = $applied; Save-Settings
+    try { Update-TweakStatus } catch {}
     Update-Boost; Log 'Done. Restart your PC for every change to take effect.'
 }
 
@@ -904,6 +909,7 @@ function Undo-All($only = $null) {
         foreach ($k in @($backup.Keys)) { if ($k.EndsWith("|$only")) { $backup.Remove($k) } }
         Save-Backup
     } else { $backup.Clear(); Remove-Item $bak -ErrorAction SilentlyContinue }
+    if (-not $only) { $script:S.TweakApplied = @(); Save-Settings; try { Update-TweakStatus } catch {} }
     Update-Boost; Log $(if ($only) { 'Game settings reverted.' } else { 'Reverted to your original settings.' })
 }
 
@@ -964,7 +970,7 @@ $script:knownApps = @(
 
 function Get-Settings {
     $d = @{ AutoBoost = $false; AutoRestore = $true; RestoreApps = $true; Prio = $true; Plan = $true; CloseApps = $false
-            Ram = $true; Dns = $true; GameMode = $true; Gpu = $true; Svc = $true; BgPrio = $true; Sched = $true; Notify = $true; Eco = $true; ProBal = $true; MemKeep = $true; BoostPlan = ''; BoostPlanVer = 0; GpuPrio = $true; Excl = $false; Mig = 0; AutoAdd = $true; ScanFolders = @(); Level = 'Auto'; PresentMon = ''; CustomApps = @()
+            Ram = $true; Dns = $true; GameMode = $true; Gpu = $true; Svc = $true; BgPrio = $true; Sched = $true; Notify = $true; Eco = $true; ProBal = $true; MemKeep = $true; BoostPlan = ''; BoostPlanVer = 0; GpuPrio = $true; Excl = $false; Mig = 0; AutoAdd = $true; ScanFolders = @(); TweakSel = @{}; TweakApplied = @(); Level = 'Auto'; PresentMon = ''; CustomApps = @()
             KillApps = @($script:knownApps | Where-Object { $_[2] } | ForEach-Object { $_[1] }) }
     if (Test-Path $script:setPath) {
         try {
@@ -975,6 +981,9 @@ function Get-Settings {
     $d.KillApps = @($d.KillApps); $d.CustomApps = @($d.CustomApps)
     if ([int]$d.Mig -lt 1) { foreach ($n in 'wallpaper64', 'wallpaper32') { if ($d.KillApps -notcontains $n) { $d.KillApps += $n } }; $d.Mig = 1 }
     if ([int]$d.Mig -lt 2) { $d.CloseApps = $false; $d.Mig = 2 }
+    # remembered Boost-page ticks come back from the file as an object: turn them into a normal table again
+    if ($d.TweakSel -isnot [hashtable]) { $ts = @{}; if ($d.TweakSel) { foreach ($pr in $d.TweakSel.PSObject.Properties) { $ts["$($pr.Name)"] = [bool]$pr.Value } }; $d.TweakSel = $ts }
+    $d.TweakApplied = @($d.TweakApplied | Where-Object { $_ })
     $d
 }
 function Save-Settings {
@@ -3665,6 +3674,15 @@ function Run-SelfCheck {
     Chk 'Process helper (native)' { if (Test-Native) { 'ready' } else { @{ R = 'FAIL'; I = 'the native helper did not compile' } } }
     Chk 'Power helper (priorities, memory)' { if (Test-Power) { 'ready' } else { @{ R = 'FAIL'; I = 'the power helper did not compile' } } }
     Chk 'Program file has no script errors' { $pe = Get-ParseErrors ([IO.File]::ReadAllText((Join-Path $script:AppRoot 'bluFPS.ps1'))); if ($pe.Count) { @{ R = 'FAIL'; I = $pe[0] } } else { 'clean' } }
+    Chk 'Boost page ticks are remembered' {
+        $keep = $script:S.TweakSel
+        $script:S.TweakSel = @{ 'bluFPS self-check' = $true; 'bluFPS self-check off' = $false }
+        Save-Settings
+        $re = Get-Settings
+        $ok = (($re.TweakSel -is [hashtable]) -and ($re.TweakSel['bluFPS self-check'] -eq $true) -and ($re.TweakSel['bluFPS self-check off'] -eq $false))
+        $script:S.TweakSel = $keep; Save-Settings
+        if ($ok) { 'ticks survive a restart' } else { @{ R = 'FAIL'; I = 'saved ticks did not come back after reloading settings' } }
+    }
     Chk 'Data folder is writable' { $f = Join-Path $script:dataDir 'selfcheck.tmp'; Set-Content -LiteralPath $f -Value 'x'; $ok = Test-Path $f; Remove-Item $f -ErrorAction SilentlyContinue; if ($ok) { "$script:dataDir" } else { $false } }
     Chk 'Game library' { $n = @($script:library).Count; $bad = @($script:library | Where-Object { (Get-GameStatus $_) -notlike 'Ready*' }).Count; "$n games, $bad need attention; last scan found $(@($script:detected).Count), $(@($script:lastScanErrors).Count) unreadable place(s)" }
     Chk 'Duplicate detection logic' {
@@ -3939,13 +3957,40 @@ $c.btnPubFile.Add_Click({ Guard 'Publish update' {
 $c.btnPubThis.Add_Click({ Guard 'Publish update' { try { Publish-Installed } catch { $c.pubStatus.Text = "Publishing failed: $($_.Exception.Message)" } } })
 
 # ---------- build Boost list ----------
+# Your ticks are remembered (settings.json) and the page shows which tweaks are applied right now.
+function Test-TweakTicked($tw) {
+    $sel = $script:S.TweakSel
+    if ($sel -is [hashtable] -and $sel.ContainsKey($tw.Name)) { return [bool]$sel[$tw.Name] }
+    return [bool]$tw.On
+}
+function Save-TweakSel {
+    $h = @{}
+    foreach ($box in @($c.tweakPanel.Children)) { $h["$($box.Tag.Name)"] = [bool]$box.IsChecked }
+    $script:S.TweakSel = $h; Save-Settings
+}
+function Get-SelectedTweaks { return @($tweaks | Where-Object { Test-TweakTicked $_ }) }
+function Update-TweakStatus {
+    foreach ($n in @($script:tweakStatus.Keys)) {
+        $tb = $script:tweakStatus[$n]
+        if (@($script:S.TweakApplied) -contains $n) {
+            $tb.Text = $(if ($n -eq 'Flush DNS cache') { 'DONE (one-time action)' } else { 'APPLIED' }); $tb.Foreground = '#3DDC97'
+        } else { $tb.Text = '' }
+    }
+}
+$script:tweakStatus = @{}
+if ($backup.Count -eq 0) { $script:S.TweakApplied = @() }
 foreach ($t in $tweaks) {
     $sp = New-Object Windows.Controls.StackPanel
     [void]$sp.Children.Add((New-Object Windows.Controls.TextBlock -Property @{ Text = $t.Name; FontSize = 14 }))
     [void]$sp.Children.Add((New-Object Windows.Controls.TextBlock -Property @{ Text = $t.Desc; FontSize = 12; Foreground = '#6C7CA3' }))
-    $cb = New-Object Windows.Controls.CheckBox -Property @{ Content = $sp; IsChecked = $t.On; Tag = $t; Foreground = '#FFFFFF'; Margin = '0,0,0,14' }
+    $stat = New-Object Windows.Controls.TextBlock -Property @{ Text = ''; FontSize = 11; FontWeight = 'Bold'; Foreground = '#3DDC97' }
+    [void]$sp.Children.Add($stat)
+    $script:tweakStatus["$($t.Name)"] = $stat
+    $cb = New-Object Windows.Controls.CheckBox -Property @{ Content = $sp; IsChecked = (Test-TweakTicked $t); Tag = $t; Foreground = '#FFFFFF'; Margin = '0,0,0,14' }
+    $cb.Add_Click({ Guard 'Boost selection' { Save-TweakSel } })
     [void]$c.tweakPanel.Children.Add($cb)
 }
+Update-TweakStatus
 
 # ---------- events ----------
 $c.navDash.Add_Click({ Show-Page 'Dash' }); $c.navBoost.Add_Click({ Show-Page 'Boost' })
@@ -3953,7 +3998,7 @@ $c.navNet.Add_Click({ Show-Page 'Net' });   $c.navApps.Add_Click({ Show-Page 'Ap
 $c.btnMin.Add_Click({ $win.WindowState = 'Minimized' }); $c.btnX.Add_Click({ $win.Close() })
 $win.Add_MouseLeftButtonDown({ if ($args[1].GetPosition($win).Y -lt 40) { try { $win.DragMove() } catch {} } })
 
-$c.btnBoost.Add_Click({ if ($backup.Count -gt 0) { Undo-All } else { Apply-Tweaks ($tweaks | Where-Object { $_.On }) } })
+$c.btnBoost.Add_Click({ if ($backup.Count -gt 0) { Undo-All } else { Apply-Tweaks (Get-SelectedTweaks) } })
 $c.btnApply.Add_Click({ Apply-Tweaks @($c.tweakPanel.Children | Where-Object { $_.IsChecked } | ForEach-Object { $_.Tag }) })
 $c.btnRevert.Add_Click({ Undo-All })
 
@@ -4372,7 +4417,7 @@ $timer.Add_Tick({
     try { Update-Session } catch {}
 })
 
-$script:AppVersion = '1.1.9.5'
+$script:AppVersion = '1.2.0'
 $c.verText.Text = "$(Format-Ver $script:AppVersion)"
 $win.Title = "bluFPS $(Format-Ver $script:AppVersion)"
 $c.updCur.Text = "$(Format-Ver $script:AppVersion)"
