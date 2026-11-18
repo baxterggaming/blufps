@@ -1,0 +1,75 @@
+HOW UPDATES WORK
+================
+bluFPS checks your update source on startup and every hour. It only READS the release information online, so an
+update is announced without downloading anything. When a newer version exists it asks inside the app ("Do you want to
+update bluFPS now?" - Yes, update / Not now / Skip this version) and only after Yes does it download and install,
+then restarts. The same release feeds the Windows and the Mac app.
+
+SET IT UP (one time, about 3 minutes)
+1. Free account at https://github.com, then a token: https://github.com/settings/tokens > Generate new token (classic) > "public_repo".
+2. Double-click BUILD.bat, then PUBLISH.bat. The first time it asks for your GitHub username, a repository name
+   (Enter = blufps) and the token. It creates the repository, publishes the release and uploads the Windows update and
+   the Mac zip. The token is stored encrypted for your Windows account only.
+3. On each PC / Mac that already has bluFPS: Windows > Updates > Update source, Mac > Settings > Update source: type
+   yourname/blufps once. (Builds made after the first publish already carry it.) Until a source is set, bluFPS shows
+   an "Online updates are not set up" bar with a Set up button.
+
+EVERY LATER UPDATE
+  - change the version in app\bluFPS.ps1 (the line  $script:AppVersion = '1.1.9')
+  - double-click BUILD.bat, then PUBLISH.bat. Every installed Windows and Mac copy announces it by itself.
+
+OTHER SOURCE (optional): an https link to an update.json on your own web host instead of GitHub:
+  { "version": "1.1.9", "url": "https://example.com/bluFPS-v1.1.9-update.zip", "sha256": "optional", "notes": "What is new" }
+
+SAFETY: only newer packages are offered; web downloads must use https; a sha256 (GitHub adds one) is verified. Updates run
+with admin rights, so only use a repository you control and protect your GitHub account (strong password + 2FA).
+Updating replaces the app files; changes to the .exe itself only arrive with the Setup.exe.
+
+
+PUBLISHING WITHOUT BUILD.BAT (v1.1.9 build 1 and newer)
+1. Open bluFPS > Updates > Set up publishing (username, repository name, GitHub token with public_repo). One time.
+2. For every new version you receive as bluFPS-vX-update.zip: Updates > Publish an update file... and pick the zip.
+   (Or: Publish this installed version, to upload the copy you are running.)
+3. Every bluFPS that has the same update address now sees it, asks, downloads, verifies and installs it by itself.
+Keeping the same visible version: the last number is a build number (1.1.9.1, 1.1.9.2, ...). A higher build counts as
+an update, and screens show it as "v1.1.9 (build 2)".
+Note: a copy of bluFPS can only find updates if it knows the address. Copies installed from a Setup built before the
+address was set learn it when you type owner/name into Updates once (or when they update through the in-app publisher
+flow on that PC).
+
+
+TESTING vs CUSTOMERS (use this when you start selling)
+- Testing = your own repository while you build. Customers = the separate GitHub your customers download updates from.
+- In bluFPS > Updates > Set up publishing (or the first PUBLISH.bat run) set up BOTH. Pick the destination with the
+  "Publish to:" button, or type 1 or 2 when PUBLISH.bat asks. BUILD.bat publishes to whichever is active.
+- Installers (bluFPS-Setup.exe) built after the Customers destination exists carry the CUSTOMERS address, even if you
+  published a test version in between. Publishing to Customers always asks you to confirm.
+- Copies already installed keep the address they were built with. To move one to the Customers repository, type the
+  Customers owner/name into its Updates box once (copies from a new Customers installer need nothing).
+- Customers do not see the publishing tools. On your own PC they appear once publishing is set up, or hold Ctrl and
+  click the version number on the Updates page.
+- Moving to a different GitHub account later: set up the Customers destination again with the new account and repository,
+  then build new installers. Do not delete the old repository until every customer copy has updated.
+
+
+MAIN BRANCH (v1.1.9 build 3 and newer)
+- Every publish now also commits to the repository's default branch (usually "main"): bluFPS.ps1, bluFPS.vbs, bluFPS.ico,
+  bluFPS.png, Uninstall.ps1, CHANGELOG.txt, README.md (latest version + what is new) and update.json. The .exe and Setup
+  files stay on the Release only.
+- Turn it off per destination: Updates > Set up publishing > untick "Also keep the repository main branch up to date",
+  or answer n when PUBLISH.bat asks.
+- Public repository = public files. The update zip on the Release already contains the same program files, so anyone who
+  can see the Release can see them; the main branch just makes them browsable. If you do not want that on your CUSTOMERS
+  repository, switch the main branch off for that destination.
+- If the branch is protected on GitHub, the push is refused; the Release is still published and the reason is shown.
+
+
+OWNER-ONLY PUBLISHING (v1.2.0 build 1 and newer)
+- The publishing tools never show for customers. On YOUR PC: Updates page > hold Ctrl and click the version number.
+  First time you create an owner passphrase (8+ characters); after that you sign in with it. It locks again after 20
+  idle minutes or when you press Lock, and the app asks again at the next start.
+- Your PC is recognised because you built bluFPS here (BUILD.bat leaves a small marker) or already set up publishing.
+  Forgot the passphrase? Delete owner.json in %APPDATA%\bluFPS and sign in again to create a new one.
+- Be clear about what this protects: the screen lock keeps customers out of the buttons. The real lock is your GitHub token,
+  which only exists, encrypted, on your PC and is never in the program that customers get. Use a token limited to the
+  Customers repository so that even a stolen copy of your PC profile can do little.

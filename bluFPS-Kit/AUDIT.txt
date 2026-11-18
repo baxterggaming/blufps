@@ -1,0 +1,91 @@
+bluFPS v1.1.9 - AUDIT AND TEST REPORT
+=====================================
+
+WHAT THE AUDIT FOUND (and what was done)
+- Boost "Free up RAM" trimmed every other program's memory on every run -> now only acts when RAM is 80%+ used.
+- The top boost level turned on a Defender exclusion (lowers security) -> removed from all profiles; stays an explicit opt-in.
+- SysMain was paused even on hard drives, where it helps -> skipped on HDD.
+- Boost levels were only different tweak lists, nothing adapted to the PC -> profiles redefined; hardware analysis and
+  bottleneck detection added; recommendation uses the measured result.
+- No way to see real FPS or prove an improvement -> real frame-time capture and a before/after test were added.
+- No per-game settings -> per-game profile added.
+- Closing apps was on by default and force-killed -> opt-in and polite only (v1.1.6).
+- Temp-folder wipe inside BOOST NOW could crash browsers -> removed (v1.1.6).
+
+WHAT IS REAL AND WHAT IS NOT
+- Real: every profile toggle changes a real Windows setting and is restored afterwards. Hardware facts come from Windows.
+  Bottleneck percentages come from Windows performance counters. FPS and frame times come from PresentMon captures.
+- Not claimed: no FPS gain is promised. If a game is GPU-limited or capped by V-Sync, bluFPS says so and says it cannot help.
+- Not available: CPU/GPU temperatures (Windows exposes no reliable reading without a vendor driver) - bluFPS does not guess.
+
+HOW IT WAS CHECKED - READ THIS
+This build was written and checked WITHOUT access to a Windows PC. What was verified: source structure (balanced blocks),
+XAML validity, every control name used by code exists, no duplicate functions, the GPU adapter pattern against sample
+counter names, and a scan for variable-name collisions (found and fixed one). What was NOT run: the app itself,
+profiles on a real game, game scanning on a real PC, the Performance page, PresentMon capture, the before/after test and
+rollback. Treat those as UNTESTED until you try them. Suggested first test: Performance > Analyze with a game running;
+then Start live monitor; then Start test. If anything fails, the red message on screen (and crash.log in
+%APPDATA%\bluFPS) says why.
+
+KNOWN LIMITS
+- PresentMon is a separate free download (github.com/GameTechDev/PresentMon/releases). Its command-line style differs
+  between versions; bluFPS tries the new style then the old one.
+- Performance counters use English names; on other Windows languages some measurements may be missing (CPU falls back to WMI).
+- The Mac app is unchanged in this version.
+
+ADDED IN 1.1.9 - CHECKS
+- Static audit for functions called but never defined and variables read but never set: none found.
+- Auto profile decision rules were mirror-tested outside PowerShell on four example PCs (results matched the intended
+  behaviour). The PowerShell itself has not been run on Windows.
+- Existing 1.1.8 installs keep their saved profile (Custom) - press Auto in Settings to switch to it.
+
+ADDED LATER IN 1.1.9 - COMPLETING THE OPEN ITEMS
+Closed: Mac app improvements; PresentMon setup; heat/power-limit detection (CPU speed, NVIDIA temperature); non-English
+Windows measurements (WMI fallbacks); scan speed; an in-app self-check; every one of the 88 buttons has a handler
+(checked automatically); no function is called without being defined; no variable is read without being set.
+Checked outside Windows: the self-check's own expected numbers (96.15 average FPS, 20 FPS 1% low, 10 spikes for the
+test data) were recomputed independently and match what the code asserts; the Mac Swift file is structurally balanced.
+
+STILL NOT VERIFIED BY ME (needs your PC / Mac)
+- Nothing here has been run. Press Run self-check first: it tests the logic above on your PC and tells you plainly what
+  works. Then try Analyze, live monitor and the before/after test with a real game.
+- The Swift changes were not compiled (no Mac / compiler available). If the Mac build fails, send the error text.
+- PresentMon download looks for the standalone 64-bit .exe in Intel's latest release; if their naming changes, bluFPS
+  opens the releases page instead and tells you.
+- AMD and Intel GPUs have no standard temperature reading; only NVIDIA temperature is shown.
+- Real FPS gains depend on the game and PC; bluFPS reports measured results only and says "no meaningful change" when so.
+
+BUILD NUMBERS AND IN-APP PUBLISHING (1.1.9 build 1)
+- Version comparison with a 4th number was checked against System.Version rules: 1.1.9 < 1.1.9.1 < 1.1.9.2 < 1.1.10.
+- Build tooling was adjusted for 4-part versions (.exe version info, Mac plist keeps 3 parts).
+- NOT run: Set up publishing, Publish an update file, Publish this installed version (they call the same GitHub web
+  service calls as PUBLISH.bat). If one fails, the exact reason appears in the Updates page.
+- The update package for build 1 (bluFPS-v1.1.9.1-update.zip) has no .exe on purpose: the launcher did not change, so
+  your installed bluFPS.exe stays and only the program files are replaced.
+
+TESTING / CUSTOMERS DESTINATIONS (1.1.9 build 2)
+- The rule for which address is built into installers was checked as logic: test-only setup keeps working as before; once
+  Customers exists, publishing to Testing leaves the address alone and publishing to Customers writes it.
+- NOT run: the destination picker, the Customers confirmation prompts, Set up publishing for both destinations, and
+  PUBLISH.bat with two destinations. They use the same GitHub calls as before. An old single-destination publish.json is
+  read as the Testing destination.
+
+MAIN BRANCH PUBLISHING (1.1.9 build 3)
+- The commit is built with GitHub's Git Data calls (blobs, tree, commit, branch update) as ONE commit, with a Contents-API
+  fallback to create the first commit in an empty repository. Request shapes were written to the documented format.
+- NOT run against GitHub: neither the in-app publisher nor PUBLISH.bat has been tested live. A failure in the main-branch
+  step never blocks the Release; the message tells you what GitHub said.
+
+BUILD 4 - WHAT WENT WRONG IN BUILD 3
+- Build 3 shipped with a PowerShell parse error (a variable followed by a colon inside a string). My checks outside
+  Windows cannot run the real PowerShell parser, so they missed it. Fixed, and a lint for this and similar traps (colon
+  after a variable in a string, PowerShell-7-only operators, unparenthesized calls before -and/-or, duplicate hashtable
+  keys) now runs clean on every script. The real parser now runs on YOUR PC: BUILD.bat (src\check.ps1), the publisher, and
+  the updater all parse before they proceed. The self-check also reports "Program file has no script errors".
+
+OWNER GATE (1.2.0 build 1)
+- Passphrase stored as a salted PBKDF2 hash (150,000 rounds), compared in constant time; the passphrase is not kept in memory
+  after the check. The sign-in entry is invisible on any PC that is not the owner's.
+- NOT run: the sign-in windows, create/unlock/lock, idle lock, wrong-passphrase delay.
+- Limit: a program that runs on a customer's PC can always be edited by that customer, so the screen lock is not security on
+  its own. Security comes from the GitHub token, which customers never receive.

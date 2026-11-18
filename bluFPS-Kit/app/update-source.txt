@@ -1,0 +1,4 @@
+# bluFPS update source (the first line that does not start with # is used).
+# Your GitHub repo, like:   yourname/blufps
+# bluFPS then tells you about new versions by itself. Nothing has to be downloaded to see that an update exists;
+# the package is only downloaded after you press "Yes, update".
