@@ -732,6 +732,7 @@ $xaml = @'
                   <TextBlock Text="RELEASING UPDATES  (only for the person who publishes new versions)" Style="{StaticResource Lbl}" TextWrapping="Wrap"/>
                   <TextBlock x:Name="pubStatus" Style="{StaticResource Sub}" Margin="0,6,0,10" TextWrapping="Wrap"/>
                   <WrapPanel>
+                    <Button x:Name="btnPubLock" Style="{StaticResource Btn}" Padding="14,7" Margin="0,0,8,8" Content="Lock"/>
                     <Button x:Name="btnPubTarget" Style="{StaticResource Btn}" Padding="14,7" Margin="0,0,8,8" Content="Publish to: Testing"/>
                     <Button x:Name="btnPubSetup" Style="{StaticResource Btn}" Padding="14,7" Margin="0,0,8,8" Content="Set up publishing"/>
                     <Button x:Name="btnPubFile" Style="{StaticResource Go}" Padding="14,7" Margin="0,0,8,8" Content="Publish an update file..."/>
@@ -3754,7 +3755,80 @@ function Format-Ver($v) {
     return $s
 }
 $script:pubPath = Join-Path $script:dataDir 'publish.json'
-$script:devFlag = Join-Path $script:dataDir 'developer.flag'
+# ---------- owner gate: the publishing tools are for the owner only ----------
+$script:ownerPath = Join-Path $script:dataDir 'owner.json'
+$script:ownerOK = $false; $script:ownerAt = $null; $script:ownerFails = 0; $script:ownerUntil = $null
+function Test-OwnerMachine { return ((Test-Path (Join-Path $script:dataDir 'owner.enable')) -or (Test-Path $script:pubPath)) }
+function New-OwnerHash($pass, $salt, $iter) {
+    $kd = New-Object Security.Cryptography.Rfc2898DeriveBytes($pass, $salt, $iter)
+    try { return , $kd.GetBytes(32) } finally { $kd.Dispose() }
+}
+function Test-OwnerPass($pass) {
+    try {
+        $j = Get-Content $script:ownerPath -Raw | ConvertFrom-Json
+        $salt = [Convert]::FromBase64String("$($j.Salt)"); $want = [Convert]::FromBase64String("$($j.Hash)")
+        $got = New-OwnerHash $pass $salt ([int]$j.Iter)
+        if ($got.Length -ne $want.Length) { return $false }
+        $diff = 0
+        for ($i = 0; $i -lt $want.Length; $i++) { $diff = $diff -bor ($want[$i] -bxor $got[$i]) }
+        return ($diff -eq 0)
+    } catch { return $false }
+}
+function Set-OwnerPass($pass) {
+    $salt = New-Object byte[] 16
+    $rng = New-Object Security.Cryptography.RNGCryptoServiceProvider; $rng.GetBytes($salt); $rng.Dispose()
+    $iter = 150000
+    $o = @{ Salt = [Convert]::ToBase64String($salt); Hash = [Convert]::ToBase64String((New-OwnerHash $pass $salt $iter)); Iter = $iter }
+    New-Item $script:dataDir -ItemType Directory -Force | Out-Null
+    [IO.File]::WriteAllText($script:ownerPath, (ConvertTo-Json -InputObject $o), (New-Object Text.UTF8Encoding $false))
+}
+function Show-OwnerDialog($create) {
+    $w = New-Object Windows.Window
+    $w.Title = $(if ($create) { 'Create your owner passphrase' } else { 'Owner sign-in' })
+    $w.Width = 430; $w.SizeToContent = 'Height'; $w.ResizeMode = 'NoResize'; $w.WindowStartupLocation = 'CenterOwner'; $w.Owner = $win; $w.Background = '#0B1226'
+    $sp = New-Object Windows.Controls.StackPanel -Property @{ Margin = '20' }
+    $msg = 'Enter your owner passphrase to unlock the publishing tools.'
+    if ($create) { $msg = 'Choose a passphrase (at least 8 characters). It unlocks the publishing tools on this PC. If you ever forget it, delete owner.json in the bluFPS data folder and choose a new one.' }
+    [void]$sp.Children.Add((New-Object Windows.Controls.TextBlock -Property @{ Text = $msg; Foreground = '#8FA0C9'; FontSize = 12; TextWrapping = 'Wrap'; Margin = '0,0,0,10' }))
+    $pb1 = New-Object Windows.Controls.PasswordBox -Property @{ Padding = '8,6'; Background = '#16224A'; Foreground = 'White'; BorderBrush = '#2A3A6B' }; [void]$sp.Children.Add($pb1)
+    $pb2 = $null
+    if ($create) { $pb2 = New-Object Windows.Controls.PasswordBox -Property @{ Padding = '8,6'; Margin = '0,8,0,0'; Background = '#16224A'; Foreground = 'White'; BorderBrush = '#2A3A6B' }; [void]$sp.Children.Add($pb2) }
+    $label = 'Unlock'; if ($create) { $label = 'Create' }
+    $btn = New-Object Windows.Controls.Button -Property @{ Content = $label; Padding = '16,7'; Margin = '0,14,0,0'; HorizontalAlignment = 'Right' }; [void]$sp.Children.Add($btn)
+    $script:ownDlg = @{ W = $w; A = $pb1; B = $pb2; Create = [bool]$create }
+    $btn.Add_Click({
+        $d = $script:ownDlg
+        if ($d.Create) {
+            if ($d.A.Password.Length -lt 8) { [void][Windows.MessageBox]::Show('Please use at least 8 characters.', 'Owner passphrase'); return }
+            if ($d.A.Password -ne $d.B.Password) { [void][Windows.MessageBox]::Show('The two passphrases are different.', 'Owner passphrase'); return }
+        }
+        $script:ownPass = $d.A.Password; $d.W.DialogResult = $true
+    })
+    $w.Content = $sp
+    $script:ownPass = $null
+    $res = $w.ShowDialog()
+    $pw = $script:ownPass; $script:ownPass = $null
+    if ($res -ne $true) { return $null }
+    if ($create) { Set-OwnerPass $pw; return $true }
+    return (Test-OwnerPass $pw)
+}
+function Invoke-OwnerSignIn {
+    if (-not (Test-OwnerMachine)) { return }
+    if ($script:ownerUntil -and (Get-Date) -lt $script:ownerUntil) { Log 'Too many wrong passphrases. Try again in a minute.'; return }
+    $create = -not (Test-Path $script:ownerPath)
+    $r = Show-OwnerDialog $create
+    if ($r -eq $true) { $script:ownerOK = $true; $script:ownerAt = Get-Date; $script:ownerFails = 0; Update-PubStatus; Log 'Owner tools unlocked.' }
+    elseif ($r -eq $false) {
+        $script:ownerFails++
+        if ($script:ownerFails -ge 5) { $script:ownerUntil = (Get-Date).AddMinutes(1); $script:ownerFails = 0 }
+        Log 'Owner sign-in failed.'
+    }
+}
+function Assert-Owner {
+    if ($script:ownerOK -and $script:ownerAt -and (((Get-Date) - $script:ownerAt).TotalMinutes -gt 20)) { $script:ownerOK = $false; Update-PubStatus }
+    if (-not $script:ownerOK) { throw 'The owner tools are locked. Ctrl+click the version number on the Updates page and sign in first.' }
+    $script:ownerAt = Get-Date
+}
 function Read-PubAll {
     $all = @{ Active = 'Testing'; Targets = @{} }
     try {
@@ -3777,7 +3851,7 @@ function Save-PubAll($all) {
 function Get-PubCfg { $all = Read-PubAll; if ($all.Targets.ContainsKey($all.Active)) { return $all.Targets[$all.Active] }; return $null }
 function Update-PubStatus {
     $all = Read-PubAll
-    $show = ((Test-Path $script:pubPath) -or (Test-Path $script:devFlag))
+    $show = ($script:ownerOK -and (Test-OwnerMachine))
     $c.pubCard.Visibility = $(if ($show) { 'Visible' } else { 'Collapsed' })
     $lines = @()
     foreach ($n in 'Testing', 'Customers') {
@@ -3789,6 +3863,7 @@ function Update-PubStatus {
     if ($all.Targets.ContainsKey($all.Active)) { $c.btnPubTarget.Content = "Publish to: $($all.Active)" } else { $c.btnPubTarget.Content = 'Publish to: (not set up)' }
 }
 function Show-PubSetup {
+    Assert-Owner
     $all = Read-PubAll
     $w = New-Object Windows.Window
     $w.Title = 'Set up publishing'; $w.Width = 480; $w.SizeToContent = 'Height'; $w.ResizeMode = 'NoResize'; $w.WindowStartupLocation = 'CenterOwner'; $w.Owner = $win; $w.Background = '#0B1226'
@@ -3856,6 +3931,7 @@ function Get-ParseErrors($text) {
     return @($er | Select-Object -First 5 | ForEach-Object { "line $($_.Extent.StartLineNumber): $($_.Message)" })
 }
 function Publish-UpdateZip($zip) {
+    Assert-Owner
     $cfg = Get-PubCfg
     if (-not $cfg) { throw 'Publishing is not set up yet. Press Set up publishing first.' }
     $tname = (Read-PubAll).Active
@@ -3934,6 +4010,7 @@ function Publish-UpdateZip($zip) {
     $c.pubStatus.Text = "Published $(Format-Ver $ver) to $tname.`n$mainMsg`n" + $c.pubStatus.Text
 }
 function Publish-Installed {
+    Assert-Owner
     $files = @('bluFPS.ps1', 'bluFPS.vbs', 'bluFPS.ico', 'bluFPS.png', 'Uninstall.ps1', 'bluFPS.exe' | ForEach-Object { Join-Path $script:AppRoot $_ } | Where-Object { Test-Path $_ })
     if (-not ($files | Where-Object { $_ -like '*bluFPS.ps1' })) { throw 'Could not find the installed program files.' }
     $zip = Join-Path $env:TEMP "bluFPS-v$($script:AppVersion)-update.zip"
@@ -3943,13 +4020,15 @@ function Publish-Installed {
 }
 $c.btnPubSetup.Add_Click({ Guard 'Set up publishing' { Show-PubSetup } })
 $c.btnPubTarget.Add_Click({ Guard 'Publish destination' {
+    Assert-Owner
     $all = Read-PubAll
     $have = @('Testing', 'Customers' | Where-Object { $all.Targets.ContainsKey($_) })
     if ($have.Count -lt 2) { $c.pubStatus.Text = 'Only one destination is set up. Press Set up publishing and choose the other one (Testing or Customers) to add it.'; return }
     $all.Active = $(if ($all.Active -eq 'Testing') { 'Customers' } else { 'Testing' })
     Save-PubAll $all; Update-PubStatus
 } })
-$c.updCur.Add_MouseLeftButtonDown({ if (([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -ne 0) { New-Item $script:devFlag -ItemType File -Force | Out-Null; Update-PubStatus } })
+$c.updCur.Add_MouseLeftButtonDown({ if (([Windows.Input.Keyboard]::Modifiers -band [Windows.Input.ModifierKeys]::Control) -ne 0) { Guard 'Owner sign-in' { Invoke-OwnerSignIn } } })
+$c.btnPubLock.Add_Click({ Guard 'Lock' { $script:ownerOK = $false; Update-PubStatus; Log 'Owner tools locked.' } })
 $c.btnPubFile.Add_Click({ Guard 'Publish update' {
     $d = New-Object Microsoft.Win32.OpenFileDialog -Property @{ Filter = 'bluFPS update (*.zip)|*.zip'; Title = 'Select the update .zip' }
     if ($d.ShowDialog() -eq $true) { try { Publish-UpdateZip $d.FileName } catch { $c.pubStatus.Text = "Publishing failed: $($_.Exception.Message)" } }
@@ -4417,7 +4496,7 @@ $timer.Add_Tick({
     try { Update-Session } catch {}
 })
 
-$script:AppVersion = '1.2.0'
+$script:AppVersion = '1.2.0.1'
 $c.verText.Text = "$(Format-Ver $script:AppVersion)"
 $win.Title = "bluFPS $(Format-Ver $script:AppVersion)"
 $c.updCur.Text = "$(Format-Ver $script:AppVersion)"

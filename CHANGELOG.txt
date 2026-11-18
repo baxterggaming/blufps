@@ -1,7 +1,22 @@
 bluFPS changelog
 ================
 
-v1.1.9  (current)
+v1.2.0  (current)
+- FIXED: the ticks on the Boost page never stuck. They were rebuilt from built-in defaults every time bluFPS started,
+  so after the restart the page asks for, everything looked unset. Your ticks are now saved the moment you click, and each
+  tweak shows a green APPLIED tag while it is active (cleared by Revert all). One-time actions show DONE.
+- FIXED: the Dashboard BOOST NOW button ignored your ticks and used the defaults; it now applies exactly what you ticked.
+- Apply selected with nothing ticked now says so instead of claiming it finished.
+- Self-check has a new test that saves ticks and reloads settings exactly like a restart, to prove they come back.
+- OWNER-ONLY publishing: the "Releasing updates" tools are hidden for everyone. They exist only on a PC where bluFPS was built
+  or publishing was set up (your PC), and only after you sign in with your owner passphrase (Ctrl+click the version number on
+  the Updates page). Every publish action checks the sign-in again, it locks itself after 20 idle minutes, after 5 wrong
+  passphrases it waits a minute, and there is a Lock button. Customers' copies show nothing and do nothing.
+- Build 1: counts as newer than 1.2.0.
+- Includes everything from 1.1.9 builds 1-5 (Auto profile, Performance page, self-check, build numbers, in-app publishing
+  with Testing / Customers destinations and main-branch updates, parser pre-flight checks).
+
+v1.1.9  (builds 1-5)
 - NEW Auto profile (default for new installs): picks the tweaks for YOUR PC and each game instead of one fixed list.
   It uses your hardware (remembered after a quick background check) and the result of your last Analyze for that game.
   It skips tweaks that cannot help and says so in the log and on the game page, for example: GPU tweaks when a game is
@@ -29,6 +44,8 @@ v1.1.9  (current)
 - Pre-flight checks so a broken script can never ship again: BUILD.bat parses every script with the real PowerShell
   parser and stops if one is broken; the in-app publisher refuses to upload an update that does not parse; the in-app
   updater refuses to install one and leaves your working version untouched.
+- Build 5: the update check now says exactly why it found no release - the repository is private / not found, or it is public but has
+  nothing published yet.
 - NEW Self-check (Performance page): tests bluFPS itself on your PC in about 10 seconds - administrator rights, helpers,
   data folder, game library, duplicate logic, hardware, performance counters, frame statistics (known test data), the
   PresentMon file reader (including a half-written line), profile apply/restore, anti-cheat detection, power plan tools.
