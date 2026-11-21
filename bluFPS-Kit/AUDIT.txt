@@ -89,3 +89,8 @@ OWNER GATE (1.2.0 build 1)
 - NOT run: the sign-in windows, create/unlock/lock, idle lock, wrong-passphrase delay.
 - Limit: a program that runs on a customer's PC can always be edited by that customer, so the screen lock is not security on
   its own. Security comes from the GitHub token, which customers never receive.
+
+PUBLISHING DIAGNOSIS (1.2.0 build 2)
+- Not run against GitHub from here. Likely causes of "nothing changed on GitHub" are now reported in plain words: destination
+  set to Customers instead of Testing (the status names the exact repository), a private repository, a token for another
+  account, or a token without permission. Press Test connection first, then publish, and read the result lines.

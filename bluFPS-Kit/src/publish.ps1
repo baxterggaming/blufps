@@ -78,6 +78,8 @@ try {
     try { $null = Invoke-RestMethod "$api/repos/$user/$repo" -Headers $h }
     catch {
         if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) {
+            $me = "$((Invoke-RestMethod "$api/user" -Headers $h).login)"
+            if ($me -ne $user) { throw "GitHub cannot find $user/$repo with this token, and the token belongs to '$me', not '$user'. Check the username and repository name." }
             Write-Host "Creating the repository $user/$repo ..."
             $body = @{ name = $repo; description = 'bluFPS releases (auto-update)'; private = $false; auto_init = $true } | ConvertTo-Json
             $null = Invoke-RestMethod "$api/user/repos" -Method Post -Headers $h -ContentType 'application/json' -Body $body
@@ -130,7 +132,7 @@ try {
                 $nt = Invoke-RestMethod "$api/repos/$user/$repo/git/trees" -Method Post -Headers $h -ContentType 'application/json' -Body (@{ base_tree = "$($pc.tree.sha)"; tree = $tree } | ConvertTo-Json -Depth 5)
                 $nc = Invoke-RestMethod "$api/repos/$user/$repo/git/commits" -Method Post -Headers $h -ContentType 'application/json' -Body (@{ message = $message; tree = "$($nt.sha)"; parents = @($parent) } | ConvertTo-Json -Depth 5)
                 $null = Invoke-RestMethod "$api/repos/$user/$repo/git/refs/heads/$branch" -Method Patch -Headers $h -ContentType 'application/json' -Body (@{ sha = "$($nc.sha)" } | ConvertTo-Json)
-                return $branch
+                return @{ Branch = $branch; Sha = "$($nc.sha)" }
             }
             $files = @{}
             foreach ($nm in 'bluFPS.ps1', 'bluFPS.vbs', 'bluFPS.ico', 'bluFPS.png', 'Uninstall.ps1') { $f = Join-Path $root "app\$nm"; if (Test-Path $f) { $files[$nm] = [IO.File]::ReadAllBytes($f) } }
@@ -140,8 +142,8 @@ try {
             $files['update.json'] = [Text.Encoding]::UTF8.GetBytes((@{ version = $ver; url = $dl; sha256 = $sha; notes = $notes } | ConvertTo-Json))
             $files['README.md'] = [Text.Encoding]::UTF8.GetBytes("# bluFPS`n`nLatest version: **$ver**`n`nbluFPS updates itself: open bluFPS > Updates. Release page: https://github.com/$user/$repo/releases/tag/$tag`n`n## What is new`n`n$notes`n")
             $br = Push-Main $api $user $repo $h $files "bluFPS $tag"
-            Write-Host "Main branch ($br) updated with version $ver." -ForegroundColor Green
-        } catch { Write-Host "The release was published, but updating the main branch failed: $($_.Exception.Message)" -ForegroundColor Yellow }
+            Write-Host "Main branch ($($br.Branch)) updated with version $ver (commit $($br.Sha.Substring(0, 7)))." -ForegroundColor Green
+        } catch { Write-Host "The release was published, but updating the main branch failed: $($_.Exception.Message)" -ForegroundColor Yellow; if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host "GitHub says: $($_.ErrorDetails.Message)" -ForegroundColor Yellow } }
     } else { Write-Host 'Main branch left alone (switched off for this destination).' }
 
     # the address built into new installers: always the CUSTOMERS repository once it exists
@@ -166,5 +168,7 @@ try {
 } catch {
     Write-Host ''
     Write-Host "Publishing failed: $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.ErrorDetails -and $_.ErrorDetails.Message) { Write-Host "GitHub says: $($_.ErrorDetails.Message)" -ForegroundColor Red }
+    Write-Host 'Common causes: a PRIVATE repository (the token only has public_repo and cannot see it - make the repo public), a wrong repository name, or a token that belongs to a different account than the username you typed.' -ForegroundColor Yellow
     Write-Host 'If it says 401/403, the token is wrong or missing the public_repo permission. Delete' (Join-Path $env:APPDATA 'bluFPS\publish.json') 'to enter it again.'
 }

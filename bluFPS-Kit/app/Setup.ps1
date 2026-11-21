@@ -1,7 +1,7 @@
 # bluFPS Setup - per-user installer (no admin rights needed)
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 $here = if ($PSScriptRoot) { $PSScriptRoot } else { $env:BLUFPS_HOME }
-$ver = '1.2.0.1'
+$ver = '1.2.0.2'
 $verShow = $ver; if (($ver.Split('.')).Count -ge 4 -and [int]$ver.Split('.')[3] -gt 0) { $verShow = $ver.Substring(0, $ver.LastIndexOf('.')) + ' (build ' + $ver.Split('.')[3] + ')' }
 $hasExe = Test-Path (Join-Path $here 'bluFPS.exe')
 $files = 'bluFPS.ps1', 'bluFPS.vbs', 'bluFPS.ico', 'bluFPS.png', 'update-source.txt', 'Uninstall.ps1'
