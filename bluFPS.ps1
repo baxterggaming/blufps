@@ -732,6 +732,8 @@ $xaml = @'
                   <TextBlock Text="RELEASING UPDATES  (only for the person who publishes new versions)" Style="{StaticResource Lbl}" TextWrapping="Wrap"/>
                   <TextBlock x:Name="pubStatus" Style="{StaticResource Sub}" Margin="0,6,0,10" TextWrapping="Wrap"/>
                   <WrapPanel>
+                    <Button x:Name="btnPubTest" Style="{StaticResource Btn}" Padding="14,7" Margin="0,0,8,8" Content="Test connection"/>
+                    <Button x:Name="btnPubOpen" Style="{StaticResource Btn}" Padding="14,7" Margin="0,0,8,8" Content="Open on GitHub"/>
                     <Button x:Name="btnPubLock" Style="{StaticResource Btn}" Padding="14,7" Margin="0,0,8,8" Content="Lock"/>
                     <Button x:Name="btnPubTarget" Style="{StaticResource Btn}" Padding="14,7" Margin="0,0,8,8" Content="Publish to: Testing"/>
                     <Button x:Name="btnPubSetup" Style="{StaticResource Btn}" Padding="14,7" Margin="0,0,8,8" Content="Set up publishing"/>
@@ -3901,6 +3903,26 @@ function Show-PubSetup {
         Update-PubStatus
     }
 }
+function Write-PubLog($line) {
+    try { Add-Content -LiteralPath (Join-Path $script:dataDir 'publish.log') -Value ("[{0}] {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $line) } catch {}
+}
+function Format-GhError($err) {
+    $m = "$($err.Exception.Message)"
+    try {
+        if ($err.ErrorDetails -and $err.ErrorDetails.Message) {
+            $j = $err.ErrorDetails.Message | ConvertFrom-Json
+            $m = "$($j.message)"
+            foreach ($e in @($j.errors)) { if ($e.message) { $m += " ($($e.message))" } elseif ($e.code) { $m += " ($($e.code))" } }
+        }
+    } catch {}
+    $code = 0
+    try { if ($err.Exception.Response) { $code = [int]$err.Exception.Response.StatusCode } } catch {}
+    if ($code) { $m = "HTTP $code - $m" }
+    if ($code -eq 401) { $m += '. The token is wrong, expired or revoked: create a new one and use Set up publishing again.' }
+    elseif ($code -eq 403) { $m += '. The token is not allowed to do this (it needs public_repo for a public repository).' }
+    elseif ($code -eq 404) { $m += '. GitHub cannot find it with this token: wrong username or repository name, or the repository is private (a public_repo token cannot see private repositories).' }
+    return $m
+}
 function Push-Main($api, $user, $repo, $h, $files, $message) {
     $info = Invoke-RestMethod "$api/repos/$user/$repo" -Headers $h
     $branch = "$($info.default_branch)"; if (-not $branch) { $branch = 'main' }
@@ -3923,12 +3945,44 @@ function Push-Main($api, $user, $repo, $h, $files, $message) {
     $nt = Invoke-RestMethod "$api/repos/$user/$repo/git/trees" -Method Post -Headers $h -ContentType 'application/json' -Body (@{ base_tree = "$($pc.tree.sha)"; tree = $tree } | ConvertTo-Json -Depth 5)
     $nc = Invoke-RestMethod "$api/repos/$user/$repo/git/commits" -Method Post -Headers $h -ContentType 'application/json' -Body (@{ message = $message; tree = "$($nt.sha)"; parents = @($parent) } | ConvertTo-Json -Depth 5)
     $null = Invoke-RestMethod "$api/repos/$user/$repo/git/refs/heads/$branch" -Method Patch -Headers $h -ContentType 'application/json' -Body (@{ sha = "$($nc.sha)" } | ConvertTo-Json)
-    return $branch
+    return @{ Branch = $branch; Sha = "$($nc.sha)" }
 }
 function Get-ParseErrors($text) {
     $tk = $null; $er = $null
     [void][System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$tk, [ref]$er)
     return @($er | Select-Object -First 5 | ForEach-Object { "line $($_.Extent.StartLineNumber): $($_.Message)" })
+}
+function Get-PubAuth($cfg) {
+    $token = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR((ConvertTo-SecureString $cfg.Token)))
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    return @{ Authorization = "Bearer $token"; Accept = 'application/vnd.github+json'; 'User-Agent' = 'bluFPS-publish' }
+}
+# one click that tells you exactly what GitHub thinks of your token and repository
+function Test-PubConnection {
+    Assert-Owner
+    $cfg = Get-PubCfg
+    if (-not $cfg) { throw 'Publishing is not set up yet. Press Set up publishing first.' }
+    $tname = (Read-PubAll).Active; $user = $cfg.User; $repo = $cfg.Repo; $api = 'https://api.github.com'
+    $h = Get-PubAuth $cfg
+    $rows = @("Destination: $tname -> github.com/$user/$repo")
+    $c.pubStatus.Text = "Checking $tname ..."; Pump
+    $login = ''
+    try {
+        $r = Invoke-WebRequest "$api/user" -Headers $h -UseBasicParsing
+        $login = "$(($r.Content | ConvertFrom-Json).login)"
+        $scopes = "$($r.Headers['X-OAuth-Scopes'])"
+        if ($scopes) { $rows += "Token OK - signed in as $login, permissions: $scopes" } else { $rows += "Token OK - signed in as $login (a fine-grained token: it must allow Contents and Releases read+write on this repository)" }
+        if ($login -ne $user) { $rows += "WARNING: the token belongs to '$login' but the destination username is '$user'. Publishing only works if '$user' is that account (or an organisation '$login' can write to)." }
+    } catch { $rows += "Token FAILED - $(Format-GhError $_)"; $c.pubStatus.Text = ($rows -join "`n"); Write-PubLog ($rows -join ' | '); return }
+    try {
+        $ri = Invoke-RestMethod "$api/repos/$user/$repo" -Headers $h
+        $vis = 'public'; if ($ri.private) { $vis = 'PRIVATE - installed copies cannot see private repositories, so they will never find updates here' }
+        $rows += "Repository found - $vis; default branch '$($ri.default_branch)'; you can push: $($ri.permissions.push)"
+        if (-not $ri.permissions.push) { $rows += 'PROBLEM: this token cannot write to the repository.' }
+        $rels = @(Invoke-RestMethod "$api/repos/$user/$repo/releases?per_page=3" -Headers $h)
+        if ($rels.Count) { $rows += 'Latest releases: ' + (($rels | ForEach-Object { $_.tag_name }) -join ', ') } else { $rows += 'No releases yet - the first publish will create one.' }
+    } catch { $rows += "Repository NOT usable - $(Format-GhError $_)" }
+    $c.pubStatus.Text = ($rows -join "`n"); Write-PubLog ($rows -join ' | ')
 }
 function Publish-UpdateZip($zip) {
     Assert-Owner
@@ -3957,57 +4011,92 @@ function Publish-UpdateZip($zip) {
         $ans = [Windows.MessageBox]::Show("You are publishing $(Format-Ver $ver) to CUSTOMERS (github.com/$user/$repo). Every customer copy will offer this update. Continue?", 'Publish to customers', 'YesNo', 'Warning')
         if ($ans -ne 'Yes') { $c.pubStatus.Text = 'Cancelled - nothing was published.'; return }
     }
-    $token = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR((ConvertTo-SecureString $cfg.Token)))
-    $h = @{ Authorization = "Bearer $token"; Accept = 'application/vnd.github+json'; 'User-Agent' = 'bluFPS-publish' }
-    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-    $c.pubStatus.Text = "Publishing $(Format-Ver $ver) to $tname..."; Pump
-    try { $null = Invoke-RestMethod "$api/repos/$user/$repo" -Headers $h }
-    catch {
-        if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) {
-            $body = @{ name = $repo; description = 'bluFPS releases (auto-update)'; private = $false; auto_init = $true } | ConvertTo-Json
-            $null = Invoke-RestMethod "$api/user/repos" -Method Post -Headers $h -ContentType 'application/json' -Body $body
-            Start-Sleep -Seconds 2
-        } else { throw }
-    }
-    $tag = "v$ver"; $rel = $null
-    try { $rel = Invoke-RestMethod "$api/repos/$user/$repo/releases/tags/$tag" -Headers $h } catch {}
-    # release notes = the newest section of CHANGELOG.txt when the zip carries one
-    $notes = "bluFPS $(Format-Ver $ver)"
-    if ($files.ContainsKey('CHANGELOG.txt')) {
-        $take = $false; $buf = @()
-        foreach ($line in ([Text.Encoding]::UTF8.GetString($files['CHANGELOG.txt']) -split "`r?`n")) {
-            if ($line -match '^v\d') { if ($take) { break } else { $take = $true; continue } }
-            if ($take) { $buf += $line }
+    Write-PubLog "---- publishing $ver to $tname ($user/$repo)"
+    try {
+        $h = Get-PubAuth $cfg
+        $c.pubStatus.Text = "Step 1 of 5: checking github.com/$user/$repo ..."; Pump
+        $info = $null
+        try { $info = Invoke-RestMethod "$api/repos/$user/$repo" -Headers $h }
+        catch {
+            $code = 0; try { $code = [int]$_.Exception.Response.StatusCode } catch {}
+            if ($code -ne 404) { throw (Format-GhError $_) }
+            $me = "$((Invoke-RestMethod "$api/user" -Headers $h).login)"
+            if ($me -ne $user) { throw "GitHub cannot find $user/$repo with this token, and the token belongs to '$me', not '$user'. Check the username and repository name (Test connection shows the details)." }
+            try {
+                $body = @{ name = $repo; description = 'bluFPS releases (auto-update)'; private = $false; auto_init = $true } | ConvertTo-Json
+                $info = Invoke-RestMethod "$api/user/repos" -Method Post -Headers $h -ContentType 'application/json' -Body $body
+                Start-Sleep -Seconds 2
+            } catch { throw "GitHub cannot see $user/$repo and could not create it: $(Format-GhError $_). If the repository already exists it is probably PRIVATE - make it public, or use a token with the full 'repo' permission." }
         }
-        if ($buf.Count) { $notes = ($buf -join "`n").Trim() }
-    }
-    if (-not $rel) {
-        $body = @{ tag_name = $tag; name = "bluFPS $tag"; body = $notes; draft = $false; prerelease = $false } | ConvertTo-Json
-        $rel = Invoke-RestMethod "$api/repos/$user/$repo/releases" -Method Post -Headers $h -ContentType 'application/json' -Body $body
-    } else {
-        $null = Invoke-RestMethod "$api/repos/$user/$repo/releases/$($rel.id)" -Method Patch -Headers $h -ContentType 'application/json' -Body (@{ body = $notes } | ConvertTo-Json)
-    }
-    $name = "bluFPS-v$ver-update.zip"
-    foreach ($a in @($rel.assets)) { if ($a.name -eq $name) { $null = Invoke-RestMethod "$api/repos/$user/$repo/releases/assets/$($a.id)" -Method Delete -Headers $h } }
-    $c.pubStatus.Text = "Uploading $name..."; Pump
-    $null = Invoke-RestMethod ("https://uploads.github.com/repos/$user/$repo/releases/$($rel.id)/assets?name=" + [uri]::EscapeDataString($name)) -Method Post -Headers $h -ContentType 'application/zip' -InFile $zip
-    if (-not "$($script:S.Source)") { $script:S.Source = "$user/$repo"; Save-Settings; $c.updSrc.Text = $script:S.Source }
-    # keep the repository's main branch up to date too (program files, README, update.json) - one commit
-    $mainMsg = 'The main branch was left alone (switched off for this destination).'
-    if ($cfg.PushMain -ne $false) {
-        try {
-            $c.pubStatus.Text = 'Updating the main branch...'; Pump
+        $tag = "v$ver"; $name = "bluFPS-v$ver-update.zip"
+        # release notes = the newest section of CHANGELOG.txt when the zip carries one
+        $notes = "bluFPS $(Format-Ver $ver)"
+        if ($files.ContainsKey('CHANGELOG.txt')) {
+            $take = $false; $buf = @()
+            foreach ($line in ([Text.Encoding]::UTF8.GetString($files['CHANGELOG.txt']) -split "`r?`n")) {
+                if ($line -match '^v\d') { if ($take) { break } else { $take = $true; continue } }
+                if ($take) { $buf += $line }
+            }
+            if ($buf.Count) { $notes = ($buf -join "`n").Trim() }
+        }
+        # the main branch first: a release needs a commit to point at (a brand-new empty repository has none)
+        $branch = "$($info.default_branch)"; if (-not $branch) { $branch = 'main' }
+        $empty = $false
+        try { $null = Invoke-RestMethod "$api/repos/$user/$repo/git/ref/heads/$branch" -Headers $h } catch { $empty = $true }
+        $mainMsg = 'The main branch was left alone (switched off for this destination).'; $commitSha = $null; $mainBranch = $branch
+        if ($cfg.PushMain -ne $false -or $empty) {
+            $c.pubStatus.Text = 'Step 2 of 5: updating the main branch...'; Pump
             $sha = (Get-FileHash $zip -Algorithm SHA256).Hash
             $dl = "https://github.com/$user/$repo/releases/download/$tag/$name"
-            $files['update.json'] = [Text.Encoding]::UTF8.GetBytes((@{ version = $ver; url = $dl; sha256 = $sha; notes = $notes } | ConvertTo-Json))
-            $files['README.md'] = [Text.Encoding]::UTF8.GetBytes("# bluFPS`n`nLatest version: **$(Format-Ver $ver)**`n`nbluFPS updates itself: open bluFPS > Updates. Release page: https://github.com/$user/$repo/releases/tag/$tag`n`n## What is new`n`n$notes`n")
-            $br = Push-Main $api $user $repo $h $files "bluFPS $tag"
-            $mainMsg = "The main branch ($br) was updated too."
-        } catch { $mainMsg = "The release is published, but updating the main branch failed: $($_.Exception.Message)" }
+            $push = $files
+            if ($cfg.PushMain -ne $false) {
+                $files['update.json'] = [Text.Encoding]::UTF8.GetBytes((@{ version = $ver; url = $dl; sha256 = $sha; notes = $notes } | ConvertTo-Json))
+                $files['README.md'] = [Text.Encoding]::UTF8.GetBytes("# bluFPS`n`nLatest version: **$(Format-Ver $ver)**`n`nbluFPS updates itself: open bluFPS > Updates. Release page: https://github.com/$user/$repo/releases/tag/$tag`n`n## What is new`n`n$notes`n")
+            } else { $push = @{ 'README.md' = [Text.Encoding]::UTF8.GetBytes("# bluFPS`n`nReleases: https://github.com/$user/$repo/releases`n") } }
+            try {
+                $pm = Push-Main $api $user $repo $h $push "bluFPS $tag"
+                $commitSha = $pm.Sha; $mainBranch = $pm.Branch; $mainMsg = "The main branch ($($pm.Branch)) was updated (commit $($commitSha.Substring(0, 7)))."
+            } catch {
+                $mainMsg = "The main branch was NOT updated: $(Format-GhError $_)"
+                Write-PubLog $mainMsg
+                if ($empty) { throw "The repository is empty and its first commit could not be created: $(Format-GhError $_)" }
+            }
+        }
+        $c.pubStatus.Text = 'Step 3 of 5: creating the release...'; Pump
+        $rel = $null
+        try { $rel = Invoke-RestMethod "$api/repos/$user/$repo/releases/tags/$tag" -Headers $h } catch {}
+        if (-not $rel) {
+            $body = @{ tag_name = $tag; name = "bluFPS $tag"; body = $notes; draft = $false; prerelease = $false } | ConvertTo-Json
+            $rel = Invoke-RestMethod "$api/repos/$user/$repo/releases" -Method Post -Headers $h -ContentType 'application/json' -Body $body
+        } else {
+            $null = Invoke-RestMethod "$api/repos/$user/$repo/releases/$($rel.id)" -Method Patch -Headers $h -ContentType 'application/json' -Body (@{ body = $notes; draft = $false } | ConvertTo-Json)
+        }
+        foreach ($a in @($rel.assets)) { if ($a.name -eq $name) { $null = Invoke-RestMethod "$api/repos/$user/$repo/releases/assets/$($a.id)" -Method Delete -Headers $h } }
+        $c.pubStatus.Text = "Step 4 of 5: uploading $name ..."; Pump
+        $null = Invoke-RestMethod ("https://uploads.github.com/repos/$user/$repo/releases/$($rel.id)/assets?name=" + [uri]::EscapeDataString($name)) -Method Post -Headers $h -ContentType 'application/zip' -InFile $zip
+        # ask GitHub what it really has now
+        $c.pubStatus.Text = 'Step 5 of 5: checking what GitHub now has...'; Pump
+        $chk = Invoke-RestMethod "$api/repos/$user/$repo/releases/tags/$tag" -Headers $h
+        $asset = @($chk.assets | Where-Object { $_.name -eq $name }) | Select-Object -First 1
+        $sizeOk = ($asset -and ([int64]$asset.size -eq (Get-Item $zip).Length))
+        $mainOk = $true
+        if ($commitSha) { try { $r2 = Invoke-RestMethod "$api/repos/$user/$repo/git/ref/heads/$mainBranch" -Headers $h; $mainOk = ("$($r2.object.sha)" -eq $commitSha) } catch { $mainOk = $false } }
+        if (-not "$($script:S.Source)") { $script:S.Source = "$user/$repo"; Save-Settings; $c.updSrc.Text = $script:S.Source }
+        $lines = @()
+        if ($sizeOk -and $mainOk) { $lines += "PUBLISHED and CHECKED on GitHub ($tname): $(Format-Ver $ver)" } else { $lines += "NOT CONFIRMED: GitHub did not report everything back correctly ($tname, $(Format-Ver $ver))" }
+        if ($sizeOk) { $lines += "  Release file: $name ($([math]::Round($asset.size / 1KB)) KB)  -  https://github.com/$user/$repo/releases/tag/$tag" } else { $lines += "  Release file: NOT found on GitHub after uploading" }
+        $lines += "  $mainMsg"
+        if ($info.private) { $lines += '  WARNING: this repository is PRIVATE. Installed copies cannot see private repositories, so they will not find this update. Make it public.' }
+        $lines += '  Details: %APPDATA%\bluFPS\publish.log'
+        Write-PubLog ($lines -join ' | ')
+        Log "Published $(Format-Ver $ver) to $tname ($user/$repo)."
+        Update-PubStatus
+        $c.pubStatus.Text = ($lines -join "`n") + "`n`n" + $c.pubStatus.Text
+    } catch {
+        $msg = Format-GhError $_
+        Write-PubLog "FAILED: $msg"
+        throw $msg
     }
-    Log "Published $(Format-Ver $ver) to $tname ($user/$repo)."
-    Update-PubStatus
-    $c.pubStatus.Text = "Published $(Format-Ver $ver) to $tname.`n$mainMsg`n" + $c.pubStatus.Text
 }
 function Publish-Installed {
     Assert-Owner
@@ -4031,9 +4120,11 @@ $c.updCur.Add_MouseLeftButtonDown({ if (([Windows.Input.Keyboard]::Modifiers -ba
 $c.btnPubLock.Add_Click({ Guard 'Lock' { $script:ownerOK = $false; Update-PubStatus; Log 'Owner tools locked.' } })
 $c.btnPubFile.Add_Click({ Guard 'Publish update' {
     $d = New-Object Microsoft.Win32.OpenFileDialog -Property @{ Filter = 'bluFPS update (*.zip)|*.zip'; Title = 'Select the update .zip' }
-    if ($d.ShowDialog() -eq $true) { try { Publish-UpdateZip $d.FileName } catch { $c.pubStatus.Text = "Publishing failed: $($_.Exception.Message)" } }
+    if ($d.ShowDialog() -eq $true) { try { Publish-UpdateZip $d.FileName } catch { $c.pubStatus.Text = "PUBLISHING FAILED: $($_.Exception.Message)" } }
 } })
-$c.btnPubThis.Add_Click({ Guard 'Publish update' { try { Publish-Installed } catch { $c.pubStatus.Text = "Publishing failed: $($_.Exception.Message)" } } })
+$c.btnPubThis.Add_Click({ Guard 'Publish update' { try { Publish-Installed } catch { $c.pubStatus.Text = "PUBLISHING FAILED: $($_.Exception.Message)" } } })
+$c.btnPubTest.Add_Click({ Guard 'Test connection' { try { Test-PubConnection } catch { $c.pubStatus.Text = "Test failed: $($_.Exception.Message)" } } })
+$c.btnPubOpen.Add_Click({ Guard 'Open on GitHub' { Assert-Owner; $cfg = Get-PubCfg; if ($cfg) { Start-Process "https://github.com/$($cfg.User)/$($cfg.Repo)" } } })
 
 # ---------- build Boost list ----------
 # Your ticks are remembered (settings.json) and the page shows which tweaks are applied right now.
@@ -4496,7 +4587,7 @@ $timer.Add_Tick({
     try { Update-Session } catch {}
 })
 
-$script:AppVersion = '1.2.0.1'
+$script:AppVersion = '1.2.0.2'
 $c.verText.Text = "$(Format-Ver $script:AppVersion)"
 $win.Title = "bluFPS $(Format-Ver $script:AppVersion)"
 $c.updCur.Text = "$(Format-Ver $script:AppVersion)"
